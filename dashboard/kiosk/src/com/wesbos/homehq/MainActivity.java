@@ -12,6 +12,8 @@ import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -34,6 +36,7 @@ public class MainActivity extends Activity {
   static final String PREF_URL = "url";
   static final long EXIT_HOLD_MS = 1500;
   static final float EXIT_SLOP_PX = 60;
+  static final long RETRY_MS = 5000;
 
   private WebView web;
   private final Handler handler = new Handler(Looper.getMainLooper());
@@ -41,6 +44,13 @@ public class MainActivity extends Activity {
   private final float[] exitX = new float[2];
   private final float[] exitY = new float[2];
   private boolean exitArmed;
+
+  private final Runnable retryLoad = new Runnable() {
+    @Override
+    public void run() {
+      web.reload();
+    }
+  };
 
   private final Runnable exitToLauncher = new Runnable() {
     @Override
@@ -73,7 +83,17 @@ public class MainActivity extends Activity {
     s.setDomStorageEnabled(true);
     s.setUseWideViewPort(true);
     s.setMediaPlaybackRequiresUserGesture(false);
-    web.setWebViewClient(new WebViewClient()); // keep navigation inside the kiosk
+    // Keep navigation inside the kiosk. If the page itself fails to load (for example at boot,
+    // before Wi-Fi or a VPN's DNS is up), retry until it loads.
+    web.setWebViewClient(new WebViewClient() {
+      @Override
+      public void onReceivedError(WebView view, WebResourceRequest req, WebResourceError err) {
+        if (!req.isForMainFrame()) return;
+        Log.w(TAG, "Load failed (" + err.getDescription() + "), retrying in " + RETRY_MS + " ms");
+        handler.removeCallbacks(retryLoad);
+        handler.postDelayed(retryLoad, RETRY_MS);
+      }
+    });
     setContentView(web);
 
     loadFrom(getIntent());
