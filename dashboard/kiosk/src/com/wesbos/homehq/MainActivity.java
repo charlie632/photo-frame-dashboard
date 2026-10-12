@@ -2,9 +2,12 @@ package com.wesbos.homehq;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
@@ -21,10 +24,14 @@ import android.webkit.WebViewClient;
  *   gets root, so the devtools socket should only exist while actively debugging):
  *     adb shell am start -n com.wesbos.homehq/.MainActivity --ez debug true
  * - Launch with a URL: adb shell am start -a android.intent.action.VIEW -d <url> -n com.wesbos.homehq/.MainActivity
+ * - Set the saved URL, used on every later launch: adb shell am start -n com.wesbos.homehq/.MainActivity --es url <url>
+ * - When the kiosk is itself the Home app, the two-finger exit opens Settings instead.
  */
 public class MainActivity extends Activity {
   static final String TAG = "HomeHQ";
   static final String DEFAULT_URL = "https://home-dashboard.wesbos.workers.dev/";
+  static final String PREFS = "kiosk";
+  static final String PREF_URL = "url";
   static final long EXIT_HOLD_MS = 1500;
   static final float EXIT_SLOP_PX = 60;
 
@@ -42,6 +49,11 @@ public class MainActivity extends Activity {
       Log.i(TAG, "Two-finger hold: exiting to launcher");
       Intent home = new Intent(Intent.ACTION_MAIN);
       home.addCategory(Intent.CATEGORY_HOME);
+      ResolveInfo ri = getPackageManager().resolveActivity(home, PackageManager.MATCH_DEFAULT_ONLY);
+      if (ri != null && getPackageName().equals(ri.activityInfo.packageName)) {
+        // We are Home: going "home" would just reopen the kiosk.
+        home = new Intent(Settings.ACTION_SETTINGS);
+      }
       home.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
       startActivity(home);
       finish();
@@ -64,16 +76,33 @@ public class MainActivity extends Activity {
     web.setWebViewClient(new WebViewClient()); // keep navigation inside the kiosk
     setContentView(web);
 
-    String url = getIntent().getDataString();
-    web.loadUrl(url != null ? url : DEFAULT_URL);
+    loadFrom(getIntent());
   }
 
   @Override
   protected void onNewIntent(Intent intent) {
     super.onNewIntent(intent);
     applyDebugFlag(intent);
-    String url = intent.getDataString();
-    if (url != null) web.loadUrl(url);
+    loadFrom(intent);
+  }
+
+  /**
+   * The "url" extra sets the saved kiosk URL. A plain VIEW link (for example one another app
+   * opens, like a sign-in page) is shown but not saved. Anything else, such as pressing Home,
+   * goes back to the saved URL.
+   */
+  private void loadFrom(Intent intent) {
+    String saved = intent.getStringExtra(PREF_URL);
+    if (saved != null) {
+      getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(PREF_URL, saved).apply();
+      Log.i(TAG, "Saved kiosk URL: " + saved);
+    }
+    String link = intent.getDataString();
+    web.loadUrl(link != null ? link : savedUrl());
+  }
+
+  private String savedUrl() {
+    return getSharedPreferences(PREFS, MODE_PRIVATE).getString(PREF_URL, DEFAULT_URL);
   }
 
   /** Remote debugging only when explicitly requested; any normal launch turns it back off. */
