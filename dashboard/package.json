@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "vite build && wrangler deploy"
+    "deploy": "vite build && wrangler deploy",
+    "deploy:tailscale": "vite build && rsync -a --delete dist/ ${DEPLOY_HOST:-lucky38}:home-dashboard/dist/"
   },
   "devDependencies": {
     "vite": "^8.3.1",
